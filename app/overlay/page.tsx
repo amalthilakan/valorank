@@ -10,6 +10,35 @@ type RankApiResult = {
   rrChange?: number | null;
   shield?: number | null;
 };
+function getGlassStyle(rank: string, rrChange?: number | null) {
+  let rankColorBg = "rgba(255, 255, 255, 0.05)";
+  let rankColorBorder = "border-[rgba(255,255,255,0.1)]";
+
+  const r = rank.toUpperCase();
+  if (r.includes("IRON")) { rankColorBg = "rgba(161,157,148,0.25)"; rankColorBorder = "border-[#a19d94]/40"; }
+  else if (r.includes("BRONZE")) { rankColorBg = "rgba(166,124,82,0.25)"; rankColorBorder = "border-[#a67c52]/40"; }
+  else if (r.includes("SILVER")) { rankColorBg = "rgba(207,212,216,0.25)"; rankColorBorder = "border-[#cfd4d8]/40"; }
+  else if (r.includes("GOLD")) { rankColorBg = "rgba(235,199,117,0.25)"; rankColorBorder = "border-[#ebc775]/40"; }
+  else if (r.includes("PLATINUM")) { rankColorBg = "rgba(91,194,170,0.25)"; rankColorBorder = "border-[#5bc2aa]/40"; }
+  else if (r.includes("DIAMOND")) { rankColorBg = "rgba(180,137,196,0.25)"; rankColorBorder = "border-[#b489c4]/40"; }
+  else if (r.includes("ASCENDANT")) { rankColorBg = "rgba(46,191,127,0.25)"; rankColorBorder = "border-[#2ebf7f]/40"; }
+  else if (r.includes("IMMORTAL")) { rankColorBg = "rgba(179,44,75,0.25)"; rankColorBorder = "border-[#b32c4b]/40"; }
+  else if (r.includes("RADIANT")) { rankColorBg = "rgba(255,219,152,0.25)"; rankColorBorder = "border-[#ffdb98]/40"; }
+
+  let actionColorBg = rankColorBg;
+  if (rrChange !== null && rrChange !== undefined && rrChange !== 0) {
+    actionColorBg = rrChange > 0 ? "rgba(74,222,128,0.25)" : "rgba(235,87,87,0.25)";
+  }
+
+  return {
+    className: `flex items-center justify-start gap-5 p-4 pr-6 rounded-3xl backdrop-blur-md border ${rankColorBorder} shadow-[0_8px_32px_rgba(0,0,0,0.4)] relative z-10 animate-[reveal_500ms_ease-out]`,
+    style: {
+      background: actionColorBg !== rankColorBg 
+          ? `linear-gradient(135deg, ${rankColorBg} 0%, ${actionColorBg} 100%)` 
+          : rankColorBg
+    }
+  };
+}
 
 function OverlayContent() {
   const params = useSearchParams();
@@ -20,6 +49,7 @@ function OverlayContent() {
   const [data, setData] = useState<RankApiResult | null>(null);
   const [prevData, setPrevData] = useState<RankApiResult | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [history, setHistory] = useState<number[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -47,6 +77,34 @@ function OverlayContent() {
               }, 2000); // Animation duration
             }
           }
+
+          // History tracking
+          const storeKey = `valorank-history-v2-${name}-${tag}`;
+          let historyData = { lastRr: null as number | null, changes: [] as number[] };
+          try {
+            const saved = window.localStorage.getItem(storeKey);
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (parsed) {
+                historyData.lastRr = parsed.lastRr ?? null;
+                historyData.changes = Array.isArray(parsed.changes) ? parsed.changes : [];
+              }
+            }
+          } catch {}
+
+          if (payload.rr !== null && payload.rr !== historyData.lastRr) {
+            // Found a new match update!
+            if (payload.rrChange !== null && payload.rrChange !== undefined && payload.rrChange !== 0) {
+              historyData.changes = [payload.rrChange, ...historyData.changes].slice(0, 3);
+            }
+            historyData.lastRr = payload.rr;
+            window.localStorage.setItem(storeKey, JSON.stringify(historyData));
+          }
+
+          if (mounted) {
+            setHistory(historyData.changes);
+          }
+
           return payload;
         });
       } catch {
@@ -69,21 +127,23 @@ function OverlayContent() {
   // If no data or still loading, render nothing to keep the stream overlay transparent
   if (!name || !tag || !region || !data || !data.iconUrl) return null;
 
+  const glassStyle = getGlassStyle(data.rank, data.rrChange);
+
   return (
     <div className="absolute top-0 left-0 p-4 overflow-hidden bg-transparent">
-      <main className="flex items-center justify-start gap-4 p-4 bg-transparent relative z-10 animate-[reveal_500ms_ease-out]">
+      <main className={glassStyle.className} style={glassStyle.style}>
         <img 
           src={data.iconUrl} 
           alt="Valorant rank icon" 
           className="w-27.5 h-27.5 object-contain animate-[floatAndGlow_4s_ease-in-out_infinite] will-change-transform" 
         />
         <div className="flex flex-col justify-center gap-2 font-montserrat">
-          <h2 className="text-[2.2rem] font-extrabold tracking-widest text-white m-0 leading-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.4)] uppercase">
+          <h2 className="text-[2.2rem] font-extrabold tracking-widest text-white m-0 leading-tight drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)] [text-shadow:0_2px_4px_rgba(0,0,0,0.5)] uppercase">
             {data.rank}
           </h2>
           <div className="flex flex-col gap-2 mt-1 w-72">
             {/* RR Progress Bar */}
-            <div className="relative h-8 w-full bg-black/40 border border-white/20 rounded-full overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+            <div className="relative h-6 w-full bg-black/40 border border-white/20 rounded-full overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
               {/* Current RR Base Fill */}
               <div 
                 className={`absolute top-0 left-0 h-full bg-white ${isAnimating ? 'transition-all duration-1000 ease-out' : ''}`}
@@ -101,7 +161,18 @@ function OverlayContent() {
                     width: `${Math.min(100 - Math.min(100, isAnimating && prevData ? prevData.rr || 0 : data.rr || 0), Math.abs(isAnimating && prevData ? prevData.rrChange || 0 : data.rrChange))}%` 
                   }}
                 >
-                  <div className="absolute inset-0 opacity-20 bg-[repeating-linear-gradient(45deg,transparent,transparent_4px,black_4px,black_8px)]"></div>
+                </div>
+              )}
+
+              {/* Positive RR Change Gained Chunk */}
+              {data.rrChange !== null && data.rrChange !== undefined && data.rrChange > 0 && (
+                <div 
+                  className={`absolute top-0 h-full bg-[#4ade80] ${isAnimating ? 'transition-all duration-1000 ease-out' : ''} flex items-center justify-center overflow-hidden`}
+                  style={{ 
+                    left: `${Math.max(0, (isAnimating && prevData ? prevData.rr || 0 : data.rr || 0) - (isAnimating && prevData ? prevData.rrChange || 0 : data.rrChange))}%`,
+                    width: `${Math.max(0, Math.min(100, isAnimating && prevData ? prevData.rr || 0 : data.rr || 0) - Math.max(0, (isAnimating && prevData ? prevData.rr || 0 : data.rr || 0) - (isAnimating && prevData ? prevData.rrChange || 0 : data.rrChange)))}%` 
+                  }}
+                >
                 </div>
               )}
               
@@ -120,20 +191,43 @@ function OverlayContent() {
                         width: `${Math.min(100 - Math.min(100, data.rr || 0), Math.abs(data.rrChange))}%` 
                       }}
                     >
-                      <div className="absolute inset-0 opacity-20 bg-[repeating-linear-gradient(45deg,transparent,transparent_4px,black_4px,black_8px)]"></div>
+                    </div>
+                  )}
+                  {data.rrChange !== null && data.rrChange !== undefined && data.rrChange > 0 && (
+                     <div 
+                      className="absolute top-0 h-full bg-[#4ade80] flex items-center justify-center overflow-hidden"
+                      style={{ 
+                        left: `${Math.max(0, (data.rr || 0) - data.rrChange)}%`,
+                        width: `${Math.max(0, Math.min(100, data.rr || 0) - Math.max(0, (data.rr || 0) - data.rrChange))}%` 
+                      }}
+                    >
                     </div>
                   )}
                 </>
               )}
 
               {/* Text Overlay */}
-              <div className="absolute inset-0 z-10 flex justify-between items-center px-4 font-bold text-[1.1rem] tracking-wider text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.9),0_0_2px_rgba(0,0,0,0.9)]">
+              <div className="absolute inset-0 z-10 flex items-center px-4 font-bold text-[0.95rem] tracking-wider text-white [text-shadow:0_2px_4px_rgba(0,0,0,1),0_0_8px_rgba(0,0,0,0.8)]">
                 <span>{data.rr} RR</span>
-                {data.rrChange !== null && data.rrChange !== undefined && data.rrChange < 0 && (
-                  <span className="text-[#ffb3b3]">{data.rrChange}</span>
-                )}
               </div>
             </div>
+
+            {/* RR Changes / History */}
+            {history.length > 0 && (
+              <div className="flex gap-2 items-center px-1 mt-0.5">
+                <span className="text-[0.75rem] uppercase font-black text-white/90 tracking-wider mr-1 [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">Match History</span>
+                <div className="flex gap-1.5">
+                  {history.map((val, idx) => (
+                    <div 
+                      key={idx}
+                      className={`flex items-center justify-center min-w-8 px-1.5 py-0.5 rounded text-[0.85rem] font-extrabold bg-black/60 border border-white/20 ${val > 0 ? "text-[#4ade80]" : "text-[#ffb3b3]"} shadow-[0_2px_4px_rgba(0,0,0,0.6)] backdrop-blur-md`}
+                    >
+                      {val > 0 ? `+${val}` : val}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Shield Indicator */}
             {data.rank.endsWith(" 1") && data.shield !== null && data.shield !== undefined && (
